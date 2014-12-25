@@ -1,0 +1,7 @@
+- You may use this software as part for your own projects, even commercial ones, as long as you give appropriate credit to me.
+
+- This software is provided "as is" by me, without any kind of warranty whatsoever. I shall not be liable for and kind of damage.
+
+- I like the motto "Don't copy, learn.", and therefore I'm providing the source code to this software - so other people can learn from it. But don't claim you wrote it - because I did.
+
+- Optional: If you like this software, please tell me how you are using it. I'm interested where this stuff goes into. ;)
