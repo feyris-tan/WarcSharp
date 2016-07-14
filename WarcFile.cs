@@ -1,89 +1,25 @@
 ﻿using System;
 using System.Collections.Generic;
+using System.Diagnostics;
 using System.Linq;
 using System.Text;
 using System.IO;
+using Warc.Index;
 
 namespace Warc
 {
     public class WarcFile : IDisposable
     {
-        const ushort WA = 16727;
-        BinaryReader br;
-
-        List<GzipHeader> gzHeaders;
-
-        public WarcFile(Stream s)
+        public WarcFile(Stream s,IIndexer indexer = null)
         {
-            //Read the first two bytes, to decide wheter this file is compressed, or not.
-            br = new BinaryReader(s);
-            ushort magic = br.ReadUInt16();
-            br.BaseStream.Position -= 2;
-            if (magic == WA)
-            {
-                throw new NotSupportedException("Uncompressed WARC files not supported.");
-            }
-            else if (magic != GzipHeader.GZIP)
-            {
-                throw new InvalidDataException("This doesn't look like a WARC file.");
-            }
+            if (indexer == null) indexer = new SelfScan(s);
+            if (indexer.WarcResponses == null) indexer.Scan();           //If scan was not invoked before, invoke it now.
+            else if (indexer.WarcResponses.Count == 0) indexer.Scan();
 
-            //Look at all the GZIP entries
-            ScanGzipEntries();
+            var requests = indexer.WarcRequests;
+            var responses = indexer.WarcResponses;
 
-            //Find all the Files inside the WARC =)
-            List<WarcRequest> requests = new List<WarcRequest>();
-            List<WarcResponse> responses = new List<WarcResponse>();
-            res = new List<WarcResource>();
-
-            GzipHeader currentHdr;
-            for (int i = 0; i < gzHeaders.Count; i++)
-            {
-                if (i % 2000 == 0)
-                {
-                    System.Diagnostics.Debug.WriteLine("Parsing WARC... {0}%", (int)(((double)i * 100.0d) / (double)gzHeaders.Count));
-                }
-
-                currentHdr = gzHeaders[i];
-                Stream entryStream = currentHdr.GetStream();
-                StreamReader str = new StreamReader(entryStream, Encoding.ASCII);
-                string warcVersion = str.ReadLine();
-                if (!warcVersion.StartsWith("WARC"))
-                {
-                    throw new NotImplementedException("doesn't look like a WARC file.");
-                }
-                string type = str.ReadLine().Split(' ')[1];
-                switch (type)
-                {
-                    case "warcinfo":
-                        if (info != null) break;    //who gives a digit about zetta slow megawarcs? I don't. If you don't like this behaviour, change it. Also speeds up a little.
-                        info = new WarcInfo(str);
-                        info.GzipHeader = currentHdr;
-                        break;
-                    case "request":
-                        WarcRequest requ = new WarcRequest(str);
-                        requ.GzipHeader = currentHdr;
-                        requests.Add(requ);
-                        break;
-                    case "response":
-                        WarcResponse resp = new WarcResponse(str);
-                        resp.GzipHeader = currentHdr;
-                        responses.Add(resp);
-                        break;
-                    case "metadata":
-                        meta = new WarcMetadata(str);
-                        meta.GzipHeader = currentHdr;
-                        break;
-                    case "resource":
-                        WarcResource newRes = new WarcResource(str);
-                        newRes.GzipHeader = currentHdr;
-                        this.res.Add(newRes);
-                        break;
-                    default:
-                        throw new NotImplementedException(type);
-                }
-            }
-
+            Debug.WriteLine("\nMapping requests to responses...");
             //Map all the responses to their requests
             foreach (WarcRequest request in requests)
             {
@@ -105,10 +41,11 @@ namespace Warc
                 result.Response = target;
                 entries.Add(result);
             }
+            Debug.WriteLine("Opening the WARC has been completed!");
         }
 
         public WarcFile(FileInfo fi)
-            : this(fi.OpenRead())
+            : this(fi.OpenRead(),new AutoScan(fi,fi.OpenRead()))
         {
         }
 
@@ -118,21 +55,7 @@ namespace Warc
 
         }
 
-        private void ScanGzipEntries()
-        {
-            GzipHeader hdr;
-            while (br.BaseStream.Position != br.BaseStream.Length)
-            {
-                hdr = new GzipHeader(br.BaseStream);
-                if (gzHeaders == null) gzHeaders = new List<GzipHeader>();
-                gzHeaders.Add(hdr);
-                br.BaseStream.Position = hdr.GzipHeaderOffset + hdr.CompressedSize;
-            }
-        }
-
-        WarcInfo info;
-        WarcMetadata meta;
-        List<WarcResource> res;
+        private Stream s;
         List<WarcFilesystemEntry> entries;
 
         public List<WarcFilesystemEntry> FilesystemEntries
@@ -145,15 +68,7 @@ namespace Warc
 
         public void Dispose()
         {
-            br.Dispose();
-        }
-
-        public WarcInfo Info
-        {
-            get
-            {
-                return info;
-            }
+            s.Dispose();
         }
     }
 }

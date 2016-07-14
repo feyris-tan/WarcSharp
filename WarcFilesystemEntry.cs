@@ -16,6 +16,10 @@ namespace Warc
         {
             get;
         }
-        Stream GetStream();
+
+        byte[] ExtractResponse();
+
+        WarcResponse Response { get; }
+        WarcRequest Request { get; }
     }
 }

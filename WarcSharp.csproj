@@ -40,9 +40,15 @@
     <Reference Include="System" />
   </ItemGroup>
   <ItemGroup>
+    <Compile Include="Index\AutoScan.cs" />
+    <None Include="Index\CDXParser.cs" />
+    <Compile Include="Index\IIndexer.cs" />
+    <Compile Include="Index\SelfScan.cs" />
+    <Compile Include="Index\WarcExtraDataScan.cs" />
     <Compile Include="RequestResponsePair.cs" />
-    <Compile Include="GzipHeader.cs" />
+    <Compile Include="GzipUtils.cs" />
     <Compile Include="Properties\AssemblyInfo.cs" />
+    <Compile Include="StreamBrake.cs" />
     <Compile Include="WarcFile.cs" />
     <Compile Include="WarcBlock.cs" />
     <Compile Include="WarcFilesystemEntry.cs" />

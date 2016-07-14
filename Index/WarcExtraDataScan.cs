@@ -5,11 +5,72 @@ using System.Text;
 using System.IO;
 using System.IO.Compression;
 
-namespace Warc
+namespace Warc.Index
 {
-    public class GzipHeader
+    class WarcExtraDataScan : IIndexer
     {
-        public const ushort GZIP = 35615;
+        public override List<WarcRequest> WarcRequests { get; protected set; }
+        public override List<WarcResponse> WarcResponses { get; protected set; }
+        public override void Scan()
+        {
+            List<WarcRequest> requests = new List<WarcRequest>();
+            List<WarcResponse> responses = new List<WarcResponse>();
+
+            parentStream.Position = 0;
+            GzipLocation location;
+            while (parentStream.Position != parentStream.Length)
+            {
+                location = new GzipLocation(parentStream, parentStream.Position);
+
+                BinaryReader br = new BinaryReader(parentStream);
+                if (br.ReadUInt16() != GzipUtils.GzipMagicNumber) throw new InvalidDataException("GZIP Header not found.");
+                method = (CompressionMethod)br.ReadByte();
+                byte mask = br.ReadByte();
+                isText = (mask & 0x01) != 0;
+                hasChecksum = (mask & 0x02) != 0;
+                hasExtraFields = (mask & 0x04) != 0;
+                hasOriginalFileNameString = (mask & 0x08) != 0;
+                containsComment = (mask & 0x10) != 0;
+                lastModificationTime = br.ReadUInt32();
+                extraFlags = br.ReadByte();
+                operatingSystem = (GzipOperatingSystem)br.ReadByte();
+                if (hasExtraFields)
+                {
+                    extraSize = br.ReadUInt16();
+                    extraDataOffset = br.BaseStream.Position;
+                    if (extraSize != 12)
+                    {
+                        throw new InvalidDataException("That doesn't look like a WARC file, because the Gzip Extra Data Length seems uncommon.");
+                    }
+                    extraData = new WARC_EXTRA_DATA(br.ReadBytes(extraSize));
+
+                }
+                if (hasOriginalFileNameString)
+                {
+                    originalFilename = readNullTerminatedString(br);
+                }
+                if (containsComment)
+                {
+                    comment = readNullTerminatedString(br);
+                }
+                if (hasChecksum)
+                {
+                    crc = br.ReadUInt16();
+                }
+
+                DeflateStream ds = new DeflateStream(parentStream, CompressionMode.Decompress);
+                StreamReader sr = new StreamReader(ds, Encoding.ASCII);
+                IIndexer.HandleEntry(sr, location, requests, responses);
+
+                br.BaseStream.Position = location.offset + (CompressedSize - 8);
+                crc32 = br.ReadUInt32();
+                uncompressedSize = br.ReadUInt32();
+            }
+
+            WarcResponses = responses;
+            WarcRequests = requests;
+
+        }
 
         Stream parentStream;
         CompressionMethod method;
@@ -34,56 +95,9 @@ namespace Warc
         uint crc32;
         uint uncompressedSize;
 
-        internal GzipHeader(Stream parent)
+        internal WarcExtraDataScan(Stream parent)
         {
             parentStream = parent;
-            BinaryReader br = new BinaryReader(parent);
-            if (br.ReadUInt16() != GZIP)
-                throw new InvalidDataException();
-            gzipOffset = br.BaseStream.Position - 2;
-
-            method = (CompressionMethod)br.ReadByte();
-            byte mask = br.ReadByte();
-            isText = (mask & 0x01) != 0;
-            hasChecksum = (mask & 0x02) != 0;
-            hasExtraFields = (mask & 0x04) != 0;
-            hasOriginalFileNameString = (mask & 0x08) != 0;
-            containsComment = (mask & 0x10) != 0;
-            bool reserved1 = (mask & 0x20) != 0;
-            bool reserved2 = (mask & 0x40) != 0;
-            bool reserved3 = (mask & 0x80) != 0;
-            lastModificationTime = br.ReadUInt32();
-            extraFlags = br.ReadByte();
-            operatingSystem = (GzipOperatingSystem)br.ReadByte();
-            if (hasExtraFields)
-            {
-                extraSize = br.ReadUInt16();
-                extraDataOffset = br.BaseStream.Position;
-                if (extraSize != 12)
-                {
-                    throw new InvalidDataException("That doesn't look like a WARC file, because the Gzip Extra Data Length seems uncommon.");
-                }
-                extraData = new WARC_EXTRA_DATA(br.ReadBytes(extraSize));
-                
-            }
-            if (hasOriginalFileNameString)
-            {
-                originalFilename = readNullTerminatedString(br);
-            }
-            if (containsComment)
-            {
-                comment = readNullTerminatedString(br);
-            }
-            if (hasChecksum)
-            {
-                crc = br.ReadUInt16();
-            }
-
-            compressedDataOffset = br.BaseStream.Position;
-
-            br.BaseStream.Position = gzipOffset + (CompressedSize - 8);
-            crc32 = br.ReadUInt32();
-            uncompressedSize = br.ReadUInt32();
         }
 
         private string readNullTerminatedString(BinaryReader ber)
